@@ -58,13 +58,14 @@ struct NumpyScalarConverter
     {
         using namespace boost::python;
 
-        // Grab pointer to memory into which to construct the std::string
+        // Grab pointer to memory into which to construct the C++ scalar
         void* storage = ((converter::rvalue_from_python_storage<ScalarType>*) data)->storage.bytes;
 
-        // in-place construct the new value
-        // extracted from the python object
+        // in-place construct the new scalar value
         ScalarType * scalar = new (storage) ScalarType;
 
+        // Equivalent to something like this:
+        // bytes = numpy.uint32(original_scalar).tobytes()
         object numpy = import("numpy");
         object original_scalar = object(handle<>(borrowed(obj_ptr)));
         object resized_scalar = numpy.attr(dtype_name<ScalarType>().c_str())(original_scalar);
