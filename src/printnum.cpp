@@ -85,7 +85,7 @@ void print_number( uint32_t number, boost::python::object other_number )
 {
     using namespace boost::python;
     std::cout << "The number is: " << number << std::endl;
-    std::cout << "The other number is: " << extract<uint32_t>(other_number) << std::endl;
+    std::cout << "The other number is: " << extract<int16_t>(other_number) << std::endl;
 }
 
 BOOST_PYTHON_MODULE(printnum)
