@@ -1,36 +1,28 @@
 #include <iostream>
 #include <boost/python.hpp>
-#include <boost/cstdint.hpp>
 
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
 
 // http://docs.scipy.org/doc/numpy/reference/c-api.array.html#importing-the-api
 #define PY_ARRAY_UNIQUE_SYMBOL printnum_cpp_module_PyArray_API
 #include <numpy/arrayobject.h>
+#include <numpy/arrayscalars.h>
 
-using boost::uint8_t;
-using boost::uint16_t;
-using boost::uint32_t;
-using boost::uint64_t;
 
-using boost::int8_t;
-using boost::int16_t;
-using boost::int32_t;
-using boost::int64_t;
-
-template <typename ScalarType>
-std::string dtype_name() { return "UNKNOWN DTYPE"; }
-
-template <> std::string dtype_name<uint8_t>()  { return "uint8"; }
-template <> std::string dtype_name<uint16_t>() { return "uint16"; }
-template <> std::string dtype_name<uint32_t>() { return "uint32"; }
-template <> std::string dtype_name<uint64_t>() { return "uint64"; }
-
-template <> std::string dtype_name<int8_t>()  { return "int8"; }
-template <> std::string dtype_name<int16_t>() { return "int16"; }
-template <> std::string dtype_name<int32_t>() { return "int32"; }
-template <> std::string dtype_name<int64_t>() { return "int64"; }
-
+/*
+ * Boost python converter for numpy scalars, e.g. numpy.uint32(123).
+ * Enables automatic conversion from numpy.intXX, floatXX
+ * in python to C++ char, short, int, float, etc.
+ * When casting from float to int (or wide int to narrow int),
+ * normal C++ casting rules apply.
+ *
+ * Like all boost::python converters, this enables automatic conversion for function args
+ * exposed via boost::python::def(), as well as values converted via boost::python::extract<>().
+ *
+ * Copied from the VIGRA C++ library source code (MIT license).
+ * http://ukoethe.github.io/vigra
+ * https://github.com/ukoethe/vigra
+ */
 template <typename ScalarType>
 struct NumpyScalarConverter
 {
@@ -40,14 +32,19 @@ struct NumpyScalarConverter
         converter::registry::push_back( &convertible, &construct, type_id<ScalarType>());
     }
 
-    // Determine if obj_ptr is a numpy.number
+    // Determine if obj_ptr is a supported numpy.number
     static void* convertible(PyObject* obj_ptr)
     {
-        using namespace boost::python;
-        object arg = object(handle<>(borrowed(obj_ptr)));
-        object isinstance = import("__builtin__").attr("isinstance");
-        object numpy_number = import("numpy").attr("number");
-        if ( isinstance(arg, numpy_number) )
+        if (PyArray_IsScalar(obj_ptr, Float32) ||
+            PyArray_IsScalar(obj_ptr, Float64) ||
+            PyArray_IsScalar(obj_ptr, Int8)    ||
+            PyArray_IsScalar(obj_ptr, Int16)   ||
+            PyArray_IsScalar(obj_ptr, Int32)   ||
+            PyArray_IsScalar(obj_ptr, Int64)   ||
+            PyArray_IsScalar(obj_ptr, UInt8)   ||
+            PyArray_IsScalar(obj_ptr, UInt16)  ||
+            PyArray_IsScalar(obj_ptr, UInt32)  ||
+            PyArray_IsScalar(obj_ptr, UInt64))
         {
             return obj_ptr;
         }
@@ -64,24 +61,37 @@ struct NumpyScalarConverter
         // in-place construct the new scalar value
         ScalarType * scalar = new (storage) ScalarType;
 
-        // Equivalent to something like this:
-        // bytes = numpy.uint32(original_scalar).tobytes()
-        object numpy = import("numpy");
-        object original_scalar = object(handle<>(borrowed(obj_ptr)));
-        object resized_scalar = numpy.attr(dtype_name<ScalarType>().c_str())(original_scalar);
-        object bytes = resized_scalar.attr("tobytes")();
-
-        Py_buffer py_buffer;
-        PyObject_GetBuffer(bytes.ptr(), &py_buffer, PyBUF_SIMPLE);
-
-        (*scalar) = *(static_cast<ScalarType*>(py_buffer.buf));
-        PyBuffer_Release(&py_buffer);
+        if (PyArray_IsScalar(obj_ptr, Float32))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, Float32);
+        else if (PyArray_IsScalar(obj_ptr, Float64))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, Float64);
+        else if (PyArray_IsScalar(obj_ptr, Int8))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, Int8);
+        else if (PyArray_IsScalar(obj_ptr, Int16))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, Int16);
+        else if (PyArray_IsScalar(obj_ptr, Int32))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, Int32);
+        else if (PyArray_IsScalar(obj_ptr, Int64))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, Int64);
+        else if (PyArray_IsScalar(obj_ptr, UInt8))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, UInt8);
+        else if (PyArray_IsScalar(obj_ptr, UInt16))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, UInt16);
+        else if (PyArray_IsScalar(obj_ptr, UInt32))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, UInt32);
+        else if (PyArray_IsScalar(obj_ptr, UInt64))
+            (*scalar) = PyArrayScalar_VAL(obj_ptr, UInt64);
 
         // Stash the memory chunk pointer for later use by boost.python
         data->convertible = storage;
     }
 };
 
+/*
+ * A silly function to test scalar conversion.
+ * The first arg tests automatic function argument conversion.
+ * The second arg is used to demonstrate explicit conversion via boost::python::extract<>()
+ */
 void print_number( uint32_t number, boost::python::object other_number )
 {
     using namespace boost::python;
@@ -89,6 +99,19 @@ void print_number( uint32_t number, boost::python::object other_number )
     std::cout << "The other number is: " << extract<int16_t>(other_number) << std::endl;
 }
 
+/*
+ * Instantiate the python extension module 'printnum'.
+ *
+ * Example Python usage:
+ *
+ *     import numpy as np
+ *     from printnum import print_number
+ *     print_number( np.uint8(123), np.int64(-456) )
+ *
+ *     ## That prints the following:
+ *     # The number is: 123
+ *     # The other number is: -456
+ */
 BOOST_PYTHON_MODULE(printnum)
 {
     using namespace boost::python;
@@ -96,16 +119,20 @@ BOOST_PYTHON_MODULE(printnum)
     // http://docs.scipy.org/doc/numpy/reference/c-api.array.html#importing-the-api
     import_array();
 
-    NumpyScalarConverter<uint8_t>();
-    NumpyScalarConverter<uint16_t>();
-    NumpyScalarConverter<uint32_t>();
-    NumpyScalarConverter<uint64_t>();
+    // Register conversion for all scalar types.
+    NumpyScalarConverter<signed char>();
+    NumpyScalarConverter<short>();
+    NumpyScalarConverter<int>();
+    NumpyScalarConverter<long>();
+    NumpyScalarConverter<long long>();
+    NumpyScalarConverter<unsigned char>();
+    NumpyScalarConverter<unsigned short>();
+    NumpyScalarConverter<unsigned int>();
+    NumpyScalarConverter<unsigned long>();
+    NumpyScalarConverter<unsigned long long>();
+    NumpyScalarConverter<float>();
+    NumpyScalarConverter<double>();
 
-    NumpyScalarConverter<int8_t>();
-    NumpyScalarConverter<int16_t>();
-    NumpyScalarConverter<int32_t>();
-    NumpyScalarConverter<int64_t>();
-
-
+    // Expose our C++ function as a python function.
     def("print_number", &print_number, (arg("number"), arg("other_number")));
 }
