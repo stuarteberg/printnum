@@ -107,5 +107,5 @@ BOOST_PYTHON_MODULE(printnum)
     NumpyScalarConverter<int64_t>();
 
 
-    def("print_number", &print_number, (arg("number")));
+    def("print_number", &print_number, (arg("number"), arg("other_number")));
 }
